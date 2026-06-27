@@ -14,7 +14,12 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:delete": "pm2 delete ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs binance-account-monitor"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.3",
@@ -61,9 +66,9 @@
     "hono": "^4.8.3",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.562.0",
-    "mysql2": "^3.14.1",
     "next-themes": "^0.4.6",
     "node-telegram-bot-api": "^1.1.2",
+    "postgres": "^3.4.5",
     "react": "^19.2.0",
     "react-day-picker": "^9.13.0",
     "react-dom": "^19.2.0",
@@ -96,6 +101,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "kimi-plugin-inspect-react": "^1.0.3",
+    "pm2": "^7.0.1",
     "postcss": "^8.5.6",
     "prettier": "^3.7.4",
     "tailwindcss": "^3.4.19",

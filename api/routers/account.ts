@@ -21,13 +21,16 @@ export const accountRouter = createRouter({
     )
     .mutation(async ({ input }) => {
       const db = getDb();
-      const result = await db.insert(accounts).values({
-        name: input.name,
-        apiKey: input.apiKey,
-        apiSecret: input.apiSecret,
-        isActive: 1,
-      });
-      return { id: Number(result[0].insertId) };
+      const result = await db
+        .insert(accounts)
+        .values({
+          name: input.name,
+          apiKey: input.apiKey,
+          apiSecret: input.apiSecret,
+          isActive: 1,
+        })
+        .returning({ id: accounts.id });
+      return { id: result[0].id };
     }),
 
   update: publicQuery

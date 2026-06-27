@@ -1,12 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "../queries/connection";
-import {
-  balances,
-  orders,
-  positions,
-  accountEvents,
-  alerts,
-} from "@db/schema";
+import { balances, orders, positions, accountEvents, alerts } from "@db/schema";
 import type { ProcessedEvent } from "./event-processor";
 import { EventProcessor } from "./event-processor";
 import type {
@@ -41,7 +35,8 @@ export class StateManager {
           free: String(free),
           locked: String(locked),
         })
-        .onDuplicateKeyUpdate({
+        .onConflictDoUpdate({
+          target: [balances.accountId, balances.marketType, balances.asset],
           set: {
             free: String(free),
             locked: String(locked),
@@ -72,7 +67,8 @@ export class StateManager {
           walletBalance: String(walletBalance),
           crossWalletBalance: String(crossWalletBalance),
         })
-        .onDuplicateKeyUpdate({
+        .onConflictDoUpdate({
+          target: [balances.accountId, balances.marketType, balances.asset],
           set: {
             free: String(parseFloat(b.availableBalance)),
             locked: String(walletBalance - parseFloat(b.availableBalance)),
@@ -91,9 +87,7 @@ export class StateManager {
     const db = getDb();
 
     // Clear old positions first (we'll re-insert current ones)
-    await db
-      .delete(positions)
-      .where(eq(positions.accountId, accountId));
+    await db.delete(positions).where(eq(positions.accountId, accountId));
 
     for (const p of positionsData) {
       const positionAmt = parseFloat(p.positionAmt);
@@ -146,7 +140,8 @@ export class StateManager {
           executedQty: o.executedQty,
           avgPrice: o.avgPrice,
         })
-        .onDuplicateKeyUpdate({
+        .onConflictDoUpdate({
+          target: [orders.accountId, orders.marketType, orders.orderId],
           set: {
             status: o.status,
             executedQty: o.executedQty,
@@ -183,7 +178,12 @@ export class StateManager {
     if (processed.balanceChanges) {
       for (const change of processed.balanceChanges) {
         if (source === "spot") {
-          await this.updateSpotBalance(accountId, change.asset, change.free, change.locked);
+          await this.updateSpotBalance(
+            accountId,
+            change.asset,
+            change.free,
+            change.locked
+          );
         } else {
           await this.updateFuturesBalance(
             accountId,
@@ -227,7 +227,8 @@ export class StateManager {
         free: String(free),
         locked: String(locked),
       })
-      .onDuplicateKeyUpdate({
+      .onConflictDoUpdate({
+        target: [balances.accountId, balances.marketType, balances.asset],
         set: {
           free: String(free),
           locked: String(locked),
@@ -253,7 +254,8 @@ export class StateManager {
         walletBalance: String(walletBalance),
         crossWalletBalance: String(crossWalletBalance),
       })
-      .onDuplicateKeyUpdate({
+      .onConflictDoUpdate({
+        target: [balances.accountId, balances.marketType, balances.asset],
         set: {
           walletBalance: String(walletBalance),
           crossWalletBalance: String(crossWalletBalance),
@@ -287,7 +289,8 @@ export class StateManager {
         fee: String(orderUpdate.fee),
         feeAsset: orderUpdate.feeAsset,
       })
-      .onDuplicateKeyUpdate({
+      .onConflictDoUpdate({
+        target: [orders.accountId, orders.marketType, orders.orderId],
         set: {
           status: orderUpdate.status,
           executedQty: String(orderUpdate.executedQty),
@@ -345,7 +348,12 @@ export class StateManager {
           positionAmt: String(transition.newAmount),
           entryPrice: String(transition.entryPrice),
         })
-        .onDuplicateKeyUpdate({
+        .onConflictDoUpdate({
+          target: [
+            positions.accountId,
+            positions.symbol,
+            positions.positionSide,
+          ],
           set: {
             positionAmt: String(transition.newAmount),
             entryPrice: String(transition.entryPrice),
@@ -372,9 +380,16 @@ export class StateManager {
       walletBalance?: number;
       crossWalletBalance?: number;
     }>
-  ): Promise<Array<{ asset: string; local: number; remote: number; diff: number }>> {
+  ): Promise<
+    Array<{ asset: string; local: number; remote: number; diff: number }>
+  > {
     const db = getDb();
-    const diffs: Array<{ asset: string; local: number; remote: number; diff: number }> = [];
+    const diffs: Array<{
+      asset: string;
+      local: number;
+      remote: number;
+      diff: number;
+    }> = [];
 
     for (const remote of remoteBalances) {
       const localRows = await db
@@ -388,9 +403,11 @@ export class StateManager {
           )
         );
 
-      const localTotal = localRows.length > 0
-        ? parseFloat(String(localRows[0].free)) + parseFloat(String(localRows[0].locked || 0))
-        : 0;
+      const localTotal =
+        localRows.length > 0
+          ? parseFloat(String(localRows[0].free)) +
+            parseFloat(String(localRows[0].locked || 0))
+          : 0;
       const remoteTotal = remote.free + (remote.locked || 0);
 
       if (Math.abs(localTotal - remoteTotal) > 0.00000001) {
@@ -403,7 +420,12 @@ export class StateManager {
 
         // Fix local state
         if (marketType === "spot") {
-          await this.updateSpotBalance(accountId, remote.asset, remote.free, remote.locked || 0);
+          await this.updateSpotBalance(
+            accountId,
+            remote.asset,
+            remote.free,
+            remote.locked || 0
+          );
         } else {
           await this.updateFuturesBalance(
             accountId,
@@ -447,7 +469,10 @@ export class StateManager {
     if (marketType) {
       conditions.push(eq(balances.marketType, marketType));
     }
-    return db.select().from(balances).where(and(...conditions));
+    return db
+      .select()
+      .from(balances)
+      .where(and(...conditions));
   }
 
   async getOrders(
@@ -463,7 +488,10 @@ export class StateManager {
     if (status) {
       conditions.push(eq(orders.status, status));
     }
-    return db.select().from(orders).where(and(...conditions));
+    return db
+      .select()
+      .from(orders)
+      .where(and(...conditions));
   }
 
   async getPositions(accountId: number) {
