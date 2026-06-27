@@ -301,12 +301,16 @@ export default function Settings() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="botToken">Bot Token</Label>
-                    <Input
-                      id="botToken"
-                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
-                      defaultValue={settings?.telegramBotToken || ""}
-                      onChange={(e) => setTelegramToken(e.target.value)}
-                    />
+                      <Input
+                        id="botToken"
+                        type="password"
+                        placeholder={
+                          settings?.telegramBotTokenConfigured
+                            ? `已配置 ${settings.telegramBotTokenMasked}`
+                            : "123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                        }
+                        onChange={(e) => setTelegramToken(e.target.value)}
+                      />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="chatId">Chat ID</Label>
@@ -323,7 +327,7 @@ export default function Settings() {
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     当前配置:
-                    {settings?.telegramBotToken ? (
+                    {settings?.telegramBotTokenConfigured ? (
                       <span className="text-green-600 ml-1">已配置 Bot Token</span>
                     ) : (
                       <span className="text-yellow-600 ml-1">未配置</span>

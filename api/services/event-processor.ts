@@ -5,6 +5,7 @@ import type {
   SpotExecutionReport,
   FuturesAccountUpdate,
   FuturesOrderTradeUpdate,
+  FuturesMarginCall,
   PositionTransition,
 } from "@contracts/binance.types";
 
@@ -63,7 +64,7 @@ export class EventProcessor {
       accountId,
       source,
       eventType: event.e,
-      eventTime: new Date((event as any).E || Date.now()),
+      eventTime: new Date(event.E || Date.now()),
       rawJson: event as unknown as Record<string, unknown>,
     };
 
@@ -203,13 +204,13 @@ export class EventProcessor {
 
   private processMarginCall(
     base: ProcessedEvent,
-    event: any
+    event: FuturesMarginCall
   ): ProcessedEvent {
     return {
       ...base,
       marginCall: {
         crossWalletBalance: parseFloat(event.cw),
-        positions: event.p.map((pos: any) => ({
+        positions: event.p.map((pos) => ({
           symbol: pos.s,
           positionSide: pos.ps,
           positionAmt: parseFloat(pos.pa),

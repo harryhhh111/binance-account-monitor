@@ -501,7 +501,11 @@ export class AccountMonitor {
     // Send Telegram
     const db = getDb();
     const settings = await db.select().from(systemSettings).limit(1);
-    if (settings.length > 0 && settings[0].telegramBotToken && settings[0].telegramChatId) {
+    if (
+      settings.length > 0 &&
+      settings[0].telegramBotToken &&
+      settings[0].telegramChatId
+    ) {
       const bot = getBot();
       if (bot) {
         const fullMsg = `账户: ${this.config.name}\n${message}`;
@@ -534,7 +538,7 @@ export class AccountMonitor {
       );
 
     const now = new Date();
-    const updateData: any = {
+    const updateData: Partial<typeof connectionStatus.$inferInsert> = {
       status,
       updatedAt: now,
     };
@@ -543,7 +547,6 @@ export class AccountMonitor {
       updateData.lastConnectedAt = now;
     } else if (status === "disconnected" || status === "error") {
       updateData.lastDisconnectedAt = now;
-      updateData.disconnectCount = sql`${connectionStatus.disconnectCount} + 1`;
     }
 
     if (errorMessage) {
@@ -553,7 +556,13 @@ export class AccountMonitor {
     if (existing.length > 0) {
       await db
         .update(connectionStatus)
-        .set(updateData)
+        .set({
+          ...updateData,
+          disconnectCount:
+            status === "disconnected" || status === "error"
+              ? sql`${connectionStatus.disconnectCount} + 1`
+              : undefined,
+        })
         .where(
           and(
             eq(connectionStatus.accountId, this.config.accountId),

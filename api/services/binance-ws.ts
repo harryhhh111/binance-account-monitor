@@ -98,9 +98,11 @@ export class BinanceWebSocketManager extends EventEmitter {
           event,
         });
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         this.emit("parse_error", {
           accountId: this.accountId,
           stream: "spot",
+          error: message,
           data: data.toString(),
         });
       }
@@ -170,9 +172,11 @@ export class BinanceWebSocketManager extends EventEmitter {
           event,
         });
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
         this.emit("parse_error", {
           accountId: this.accountId,
           stream: "futures",
+          error: message,
           data: data.toString(),
         });
       }

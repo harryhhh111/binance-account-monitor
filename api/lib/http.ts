@@ -2,6 +2,7 @@ interface RequestConfig extends RequestInit {
   baseUrl?: string;
   params?: Record<string, string | number>;
   timeout?: number;
+  jsonBody?: unknown;
 }
 
 export class HttpClient {
@@ -20,7 +21,7 @@ export class HttpClient {
     const {
       method = "GET",
       params,
-      body,
+      jsonBody,
       headers,
       timeout = 30000,
       ...rest
@@ -41,7 +42,7 @@ export class HttpClient {
         ...rest,
         method,
         headers: { ...this.defaultHeaders, ...headers },
-        body: body ? JSON.stringify(body) : undefined,
+        body: jsonBody ? JSON.stringify(jsonBody) : undefined,
         signal: controller.signal,
       });
 
@@ -55,8 +56,8 @@ export class HttpClient {
       }
 
       return (await response.json()) as T;
-    } catch (error: any) {
-      if (error.name === "AbortError") {
+    } catch (error: unknown) {
+      if (error instanceof Error && error.name === "AbortError") {
         throw new Error("Request timeout");
       }
       throw error;
@@ -71,7 +72,7 @@ export class HttpClient {
     return this.request<T>(url, { ...config, method: "GET", params });
   }
 
-  post<T>(url: string, body?: any, config?: RequestConfig) {
-    return this.request<T>(url, { ...config, method: "POST", body });
+  post<T>(url: string, body?: unknown, config?: RequestConfig) {
+    return this.request<T>(url, { ...config, method: "POST", jsonBody: body });
   }
 }

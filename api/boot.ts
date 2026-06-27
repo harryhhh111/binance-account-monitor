@@ -10,6 +10,7 @@ import { systemSettings, accounts } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { initTelegramBot } from "./services/telegram-alert";
 import { monitorManager } from "./services/monitor-manager";
+import { decryptSecret, encryptSecret, isEncryptedSecret } from "./lib/secrets";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -24,15 +25,51 @@ app.use("/api/trpc/*", async (c) => {
 });
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
+async function migratePlaintextSecrets(): Promise<void> {
+  const db = getDb();
+  const accountRows = await db.select().from(accounts);
+
+  for (const account of accountRows) {
+    if (
+      isEncryptedSecret(account.apiKey) &&
+      isEncryptedSecret(account.apiSecret)
+    ) {
+      continue;
+    }
+
+    await db
+      .update(accounts)
+      .set({
+        apiKey: encryptSecret(account.apiKey) ?? "",
+        apiSecret: encryptSecret(account.apiSecret) ?? "",
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, account.id));
+  }
+
+  const settingsRows = await db.select().from(systemSettings).limit(1);
+  const settings = settingsRows[0];
+  if (settings?.telegramBotToken && !isEncryptedSecret(settings.telegramBotToken)) {
+    await db
+      .update(systemSettings)
+      .set({
+        telegramBotToken: encryptSecret(settings.telegramBotToken),
+        updatedAt: new Date(),
+      })
+      .where(eq(systemSettings.id, settings.id));
+  }
+}
+
 // Initialize on startup
 async function initialize() {
   try {
     const db = getDb();
+    await migratePlaintextSecrets();
 
     // Load Telegram settings
     const settings = await db.select().from(systemSettings).limit(1);
     if (settings.length > 0 && settings[0].telegramBotToken) {
-      initTelegramBot(settings[0].telegramBotToken);
+      initTelegramBot(decryptSecret(settings[0].telegramBotToken));
       console.log("Telegram bot initialized");
     }
 
@@ -47,8 +84,8 @@ async function initialize() {
         await monitorManager.addMonitor({
           accountId: account.id,
           name: account.name,
-          apiKey: account.apiKey,
-          apiSecret: account.apiSecret,
+          apiKey: decryptSecret(account.apiKey),
+          apiSecret: decryptSecret(account.apiSecret),
         });
         console.log(`Auto-started monitor for account: ${account.name}`);
       } catch (err) {

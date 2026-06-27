@@ -1,73 +1,61 @@
-# React + TypeScript + Vite
+# Binance Account Monitor
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+实时监控 Binance 账户现货、合约余额、订单、持仓和连接状态的 Web 应用。前端基于 React + Vite，后端基于 Hono + tRPC，数据存储使用 PostgreSQL + Drizzle。
 
-Currently, two official plugins are available:
+## 功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 多 Binance API 账户管理
+- 现货和 U 本位合约 User Data Stream 监听
+- 余额、订单、持仓快照与周期性对账
+- 连接状态、最近事件、告警面板
+- Telegram 告警通知
+- API Key、API Secret、Telegram Bot Token 服务端加密存储
 
-## React Compiler
+## 环境变量
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+复制 `.env.example` 为 `.env` 并填写：
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+DATABASE_URL=postgresql://user:password@host:5432/database
+SECRETS_KEY=replace-with-a-long-random-string
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+`SECRETS_KEY` 用于加密数据库中的 API 凭据。生产环境必须配置，且上线后不要随意更换，否则历史密文无法解密。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 开发
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run db:migrate
+npm run dev
+```
+
+默认开发服务端口是 `3000`。
+
+## 验证
+
+```bash
+npm run check
+npm run lint
+npm test
+npm run build
+npm audit
+```
+
+## 部署
+
+```bash
+npm run build
+npm start
+```
+
+生产启动时会读取数据库中活跃账户并自动启动监控。请确认 API Key 权限、IP 白名单、数据库连接和 Telegram 配置都已经准备好。
+
+## 数据库
+
+迁移文件位于 `db/migrations/`，schema 位于 `db/schema.ts`。
+
+```bash
+npm run db:generate
+npm run db:migrate
 ```

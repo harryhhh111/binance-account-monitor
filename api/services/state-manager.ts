@@ -5,6 +5,7 @@ import type { ProcessedEvent } from "./event-processor";
 import { EventProcessor } from "./event-processor";
 import type {
   BinanceBalance,
+  BinanceEvent,
   BinanceFuturesBalance,
   BinanceFuturesPosition,
   BinanceOrder,
@@ -157,7 +158,7 @@ export class StateManager {
   async processEvent(
     accountId: number,
     source: "spot" | "futures",
-    event: any
+    event: BinanceEvent
   ): Promise<ProcessedEvent | null> {
     const processed = this.eventProcessor.process(accountId, source, event);
     if (!processed) return null;
@@ -334,7 +335,10 @@ export class StateManager {
           and(
             eq(positions.accountId, accountId),
             eq(positions.symbol, transition.symbol),
-            eq(positions.positionSide, transition.positionSide as any)
+            eq(
+              positions.positionSide,
+              transition.positionSide as "BOTH" | "LONG" | "SHORT"
+            )
           )
         );
     } else {
@@ -452,7 +456,7 @@ export class StateManager {
     const db = getDb();
     await db.insert(alerts).values({
       accountId,
-      alertType: alertType as any,
+      alertType: alertType as typeof alerts.$inferInsert.alertType,
       severity,
       title,
       message,

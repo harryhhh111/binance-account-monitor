@@ -4,11 +4,21 @@ import { getDb } from "../queries/connection";
 import { accounts } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { monitorManager } from "../services/monitor-manager";
+import { decryptSecret, encryptSecret, maskSecret } from "../lib/secrets";
 
 export const accountRouter = createRouter({
   list: publicQuery.query(async () => {
     const db = getDb();
-    return db.select().from(accounts);
+    const rows = await db.select().from(accounts);
+    return rows.map((account) => ({
+      id: account.id,
+      name: account.name,
+      apiKey: maskSecret(account.apiKey),
+      apiSecretConfigured: Boolean(account.apiSecret),
+      isActive: account.isActive,
+      createdAt: account.createdAt,
+      updatedAt: account.updatedAt,
+    }));
   }),
 
   create: publicQuery
@@ -25,8 +35,8 @@ export const accountRouter = createRouter({
         .insert(accounts)
         .values({
           name: input.name,
-          apiKey: input.apiKey,
-          apiSecret: input.apiSecret,
+          apiKey: encryptSecret(input.apiKey) ?? "",
+          apiSecret: encryptSecret(input.apiSecret) ?? "",
           isActive: 1,
         })
         .returning({ id: accounts.id });
@@ -46,7 +56,17 @@ export const accountRouter = createRouter({
     .mutation(async ({ input }) => {
       const db = getDb();
       const { id, ...data } = input;
-      await db.update(accounts).set(data).where(eq(accounts.id, id));
+      await db
+        .update(accounts)
+        .set({
+          ...data,
+          apiKey: data.apiKey ? encryptSecret(data.apiKey) ?? "" : undefined,
+          apiSecret: data.apiSecret
+            ? encryptSecret(data.apiSecret) ?? ""
+            : undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.id, id));
       return { success: true };
     }),
 
@@ -77,8 +97,8 @@ export const accountRouter = createRouter({
       await monitorManager.addMonitor({
         accountId: account.id,
         name: account.name,
-        apiKey: account.apiKey,
-        apiSecret: account.apiSecret,
+        apiKey: decryptSecret(account.apiKey),
+        apiSecret: decryptSecret(account.apiSecret),
       });
 
       return { success: true };

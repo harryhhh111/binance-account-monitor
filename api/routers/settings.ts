@@ -4,12 +4,23 @@ import { getDb } from "../queries/connection";
 import { systemSettings } from "@db/schema";
 import { eq } from "drizzle-orm";
 import { initTelegramBot } from "../services/telegram-alert";
+import { decryptSecret, encryptSecret, maskSecret } from "../lib/secrets";
 
 export const settingsRouter = createRouter({
   get: publicQuery.query(async () => {
     const db = getDb();
     const rows = await db.select().from(systemSettings).limit(1);
-    return rows[0] || null;
+    const settings = rows[0];
+    if (!settings) return null;
+    return {
+      id: settings.id,
+      telegramBotTokenConfigured: Boolean(settings.telegramBotToken),
+      telegramBotTokenMasked: maskSecret(settings.telegramBotToken),
+      telegramChatId: settings.telegramChatId,
+      reconcileIntervalSeconds: settings.reconcileIntervalSeconds,
+      createdAt: settings.createdAt,
+      updatedAt: settings.updatedAt,
+    };
   }),
 
   update: publicQuery
@@ -29,12 +40,15 @@ export const settingsRouter = createRouter({
           .update(systemSettings)
           .set({
             ...input,
+            telegramBotToken: input.telegramBotToken
+              ? encryptSecret(input.telegramBotToken)
+              : undefined,
             updatedAt: new Date(),
           })
           .where(eq(systemSettings.id, existing[0].id));
       } else {
         await db.insert(systemSettings).values({
-          telegramBotToken: input.telegramBotToken || null,
+          telegramBotToken: encryptSecret(input.telegramBotToken),
           telegramChatId: input.telegramChatId || null,
           reconcileIntervalSeconds: input.reconcileIntervalSeconds || 300,
         });
@@ -42,7 +56,7 @@ export const settingsRouter = createRouter({
 
       // Re-init Telegram bot if token changed
       if (input.telegramBotToken) {
-        initTelegramBot(input.telegramBotToken);
+        initTelegramBot(decryptSecret(input.telegramBotToken));
       }
 
       return { success: true };
