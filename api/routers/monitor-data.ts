@@ -9,6 +9,7 @@ import {
   alerts,
   connectionStatus,
   trades,
+  transfers,
 } from "@db/schema";
 import { eq, and, desc } from "drizzle-orm";
 
@@ -33,6 +34,29 @@ export const monitorDataRouter = createRouter({
         .from(trades)
         .where(and(...conditions))
         .orderBy(desc(trades.tradedAt))
+        .limit(input.limit);
+    }),
+
+  // Transfers (deposits / withdrawals)
+  transfers: publicQuery
+    .input(
+      z.object({
+        accountId: z.number(),
+        type: z.enum(["deposit", "withdrawal"]).optional(),
+        limit: z.number().min(1).max(1000).default(100),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const conditions = [eq(transfers.accountId, input.accountId)];
+      if (input.type) {
+        conditions.push(eq(transfers.type, input.type));
+      }
+      return db
+        .select()
+        .from(transfers)
+        .where(and(...conditions))
+        .orderBy(desc(transfers.transferTime))
         .limit(input.limit);
     }),
 
@@ -148,7 +172,7 @@ export const monitorDataRouter = createRouter({
       const db = getDb();
       const accountId = input.accountId;
 
-      const [spotBalancesList, futuresBalancesList, positionsList, openOrders, recentAlerts, recentEvents] =
+      const [spotBalancesList, futuresBalancesList, positionsList, openOrders, recentAlerts, recentEvents, recentTransfers] =
         await Promise.all([
           db
             .select()
@@ -193,6 +217,12 @@ export const monitorDataRouter = createRouter({
             .where(eq(accountEvents.accountId, accountId))
             .orderBy(desc(accountEvents.createdAt))
             .limit(50),
+          db
+            .select()
+            .from(transfers)
+            .where(eq(transfers.accountId, accountId))
+            .orderBy(desc(transfers.transferTime))
+            .limit(20),
         ]);
 
       return {
@@ -202,6 +232,7 @@ export const monitorDataRouter = createRouter({
         openOrders,
         recentAlerts,
         recentEvents,
+        recentTransfers,
       };
     }),
 });

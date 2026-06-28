@@ -8,6 +8,8 @@ import type {
   BinanceSpotTrade,
   BinanceFuturesTrade,
   BinanceFuturesIncome,
+  BinanceDeposit,
+  BinanceWithdrawal,
 } from "@contracts/binance.types";
 
 export interface BinanceCredentials {
@@ -194,6 +196,91 @@ export class BinanceRestClient {
       params: { ...params, signature },
     });
     return res.data;
+  }
+
+  // ========== Deposit / Withdrawal History ==========
+
+  private readonly TRANSFER_PAGE_LIMIT = 1000;
+
+  async getDeposits(options?: {
+    startTime?: number;
+    endTime?: number;
+    offset?: number;
+    limit?: number;
+  }): Promise<BinanceDeposit[]> {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = { timestamp };
+    if (options?.startTime !== undefined) params.startTime = options.startTime;
+    if (options?.endTime !== undefined) params.endTime = options.endTime;
+    if (options?.offset !== undefined) params.offset = options.offset;
+    if (options?.limit !== undefined) params.limit = options.limit;
+    const signature = this.sign(params, this.credentials.apiSecret);
+    const res = await this.spotClient.get("/sapi/v1/capital/deposit/hisrec", {
+      params: { ...params, signature },
+    });
+    return res.data;
+  }
+
+  async getAllDeposits(
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceDeposit[]> {
+    const all: BinanceDeposit[] = [];
+    let offset = 0;
+    const limit = this.TRANSFER_PAGE_LIMIT;
+
+    while (true) {
+      const page = await this.getDeposits({ startTime, endTime, offset, limit });
+      if (page.length === 0) break;
+      all.push(...page);
+      if (page.length < limit) break;
+      offset += limit;
+    }
+
+    return all;
+  }
+
+  async getWithdrawals(options?: {
+    startTime?: number;
+    endTime?: number;
+    offset?: number;
+    limit?: number;
+  }): Promise<BinanceWithdrawal[]> {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = { timestamp };
+    if (options?.startTime !== undefined) params.startTime = options.startTime;
+    if (options?.endTime !== undefined) params.endTime = options.endTime;
+    if (options?.offset !== undefined) params.offset = options.offset;
+    if (options?.limit !== undefined) params.limit = options.limit;
+    const signature = this.sign(params, this.credentials.apiSecret);
+    const res = await this.spotClient.get("/sapi/v1/capital/withdraw/history", {
+      params: { ...params, signature },
+    });
+    return res.data;
+  }
+
+  async getAllWithdrawals(
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceWithdrawal[]> {
+    const all: BinanceWithdrawal[] = [];
+    let offset = 0;
+    const limit = this.TRANSFER_PAGE_LIMIT;
+
+    while (true) {
+      const page = await this.getWithdrawals({
+        startTime,
+        endTime,
+        offset,
+        limit,
+      });
+      if (page.length === 0) break;
+      all.push(...page);
+      if (page.length < limit) break;
+      offset += limit;
+    }
+
+    return all;
   }
 
   // ========== Trade History ==========

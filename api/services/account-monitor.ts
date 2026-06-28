@@ -590,6 +590,51 @@ export class AccountMonitor {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
+  async syncTransfers(days = 3): Promise<{
+    deposits: number;
+    withdrawals: number;
+  }> {
+    const accountId = this.config.accountId;
+    const endTime = Date.now();
+    const startTime = endTime - days * 24 * 60 * 60 * 1000;
+    let depositsCount = 0;
+    let withdrawalsCount = 0;
+
+    try {
+      const deposits = await this.restClient.getAllDeposits(startTime, endTime);
+      if (deposits.length > 0) {
+        await this.stateManager.loadDeposits(accountId, deposits);
+        depositsCount += deposits.length;
+      }
+    } catch (err) {
+      console.error(
+        `[Account ${accountId}] Error syncing deposits:`,
+        err
+      );
+    }
+
+    try {
+      const withdrawals = await this.restClient.getAllWithdrawals(
+        startTime,
+        endTime
+      );
+      if (withdrawals.length > 0) {
+        await this.stateManager.loadWithdrawals(accountId, withdrawals);
+        withdrawalsCount += withdrawals.length;
+      }
+    } catch (err) {
+      console.error(
+        `[Account ${accountId}] Error syncing withdrawals:`,
+        err
+      );
+    }
+
+    console.log(
+      `[Account ${accountId}] Synced ${depositsCount} deposits and ${withdrawalsCount} withdrawals`
+    );
+    return { deposits: depositsCount, withdrawals: withdrawalsCount };
+  }
+
   async syncTrades(days = 3): Promise<{
     spot: number;
     futures: number;

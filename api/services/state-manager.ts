@@ -7,6 +7,7 @@ import {
   accountEvents,
   alerts,
   trades,
+  transfers,
 } from "@db/schema";
 import type { ProcessedEvent } from "./event-processor";
 import { EventProcessor } from "./event-processor";
@@ -18,11 +19,40 @@ import type {
   BinanceOrder,
   BinanceSpotTrade,
   BinanceFuturesTrade,
+  BinanceDeposit,
+  BinanceWithdrawal,
 } from "@contracts/binance.types";
 
 export class StateManager {
   private eventProcessor = new EventProcessor();
   private positionCache = new Map<string, { amt: number; side: string }>();
+
+  private parseBinanceDate(value: string | number | undefined): Date | null {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value === "number") {
+      return new Date(value);
+    }
+    // Binance withdrawal timestamps are "YYYY-MM-DD HH:mm:ss" in UTC.
+    const match = value.match(
+      /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/
+    );
+    if (match) {
+      const [, year, month, day, hour, minute, second] = match;
+      return new Date(
+        Date.UTC(
+          Number(year),
+          Number(month) - 1,
+          Number(day),
+          Number(hour),
+          Number(minute),
+          Number(second)
+        )
+      );
+    }
+    return new Date(value);
+  }
 
   // ========== Snapshot Loading ==========
 
@@ -638,5 +668,123 @@ export class StateManager {
       .from(trades)
       .where(and(...conditions))
       .orderBy(sql`${trades.tradedAt} DESC`);
+  }
+
+  // ========== Deposit / Withdrawal History ==========
+
+  private depositStatusText(status: number): string {
+    // Binance deposit status codes per /sapi/v1/capital/deposit/hisrec docs.
+    const map: Record<number, string> = {
+      0: "pending",
+      1: "success",
+      6: "credited_but_cannot_withdraw",
+      7: "wrong_deposit",
+      8: "waiting_user_confirm",
+    };
+    return map[status] ?? String(status);
+  }
+
+  private withdrawalStatusText(status: number): string {
+    // Binance withdrawal status codes per /sapi/v1/capital/withdraw/history docs.
+    const map: Record<number, string> = {
+      0: "email_sent",
+      1: "cancelled",
+      2: "awaiting_approval",
+      3: "rejected",
+      4: "processing",
+      5: "failure",
+      6: "completed",
+    };
+    return map[status] ?? String(status);
+  }
+
+  private makeDepositTxId(d: BinanceDeposit): string {
+    // Prefer the on-chain transaction id; fall back to Binance's internal id
+    // or a composite derived from other stable fields if neither is present.
+    if (d.txId) return d.txId;
+    if (d.id) return d.id;
+    return `DEP-${d.coin}-${d.insertTime}-${d.amount}`;
+  }
+
+  async loadDeposits(
+    accountId: number,
+    depositsData: BinanceDeposit[]
+  ): Promise<void> {
+    const db = getDb();
+    for (const d of depositsData) {
+      const txId = this.makeDepositTxId(d);
+      await db
+        .insert(transfers)
+        .values({
+          accountId,
+          type: "deposit",
+          txId,
+          asset: d.coin,
+          amount: d.amount,
+          network: d.network,
+          address: d.address,
+          addressTag: d.addressTag,
+          status: this.depositStatusText(d.status),
+          transferTime: this.parseBinanceDate(d.insertTime),
+        })
+        .onConflictDoUpdate({
+          target: [transfers.accountId, transfers.type, transfers.txId],
+          set: {
+            amount: d.amount,
+            status: this.depositStatusText(d.status),
+            transferTime: this.parseBinanceDate(d.insertTime),
+            updatedAt: new Date(),
+          },
+        });
+    }
+  }
+
+  async loadWithdrawals(
+    accountId: number,
+    withdrawalsData: BinanceWithdrawal[]
+  ): Promise<void> {
+    const db = getDb();
+    for (const w of withdrawalsData) {
+      const txId = w.txId || w.id;
+      const transferTime = w.completeTime
+        ? this.parseBinanceDate(w.completeTime)
+        : this.parseBinanceDate(w.applyTime);
+      await db
+        .insert(transfers)
+        .values({
+          accountId,
+          type: "withdrawal",
+          txId,
+          asset: w.coin,
+          amount: w.amount,
+          network: w.network,
+          address: w.address,
+          addressTag: w.addressTag,
+          status: this.withdrawalStatusText(w.status),
+          transferTime,
+        })
+        .onConflictDoUpdate({
+          target: [transfers.accountId, transfers.type, transfers.txId],
+          set: {
+            amount: w.amount,
+            status: this.withdrawalStatusText(w.status),
+            transferTime,
+            updatedAt: new Date(),
+          },
+        });
+    }
+  }
+
+  async getTransfers(accountId: number, type?: "deposit" | "withdrawal") {
+    const db = getDb();
+    const conditions = [eq(transfers.accountId, accountId)];
+    if (type) {
+      conditions.push(eq(transfers.type, type));
+    }
+    return db
+      .select()
+      .from(transfers)
+      .where(and(...conditions))
+      .orderBy(sql`${transfers.transferTime} DESC`);
   }
 }

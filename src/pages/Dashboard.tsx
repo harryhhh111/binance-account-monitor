@@ -22,6 +22,8 @@ import {
   RefreshCw,
   Server,
   Radio,
+  ArrowDownLeft,
+  ArrowUpRight,
 } from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -36,6 +38,22 @@ export default function Dashboard() {
     { accountId: selectedAccountId! },
     { enabled: !!selectedAccountId, refetchInterval: 5000 }
   );
+
+  const { data: transfers, refetch: refetchTransfers } =
+    trpc.monitor.transfers.useQuery(
+      { accountId: selectedAccountId! },
+      { enabled: !!selectedAccountId }
+    );
+
+  const syncTransfers = trpc.account.syncTransfers.useMutation({
+    onSuccess: (result) => {
+      toast.success(
+        `充提记录同步完成: ${result.deposits} 笔充值, ${result.withdrawals} 笔提现`
+      );
+      refetchTransfers();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const startMonitor = trpc.account.startMonitor.useMutation({
     onSuccess: () => {
@@ -194,17 +212,18 @@ export default function Dashboard() {
           </div>
         ) : (
           <Tabs defaultValue="overview" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
+            <TabsList className="grid w-full grid-cols-6 lg:w-[720px]">
               <TabsTrigger value="overview">概览</TabsTrigger>
               <TabsTrigger value="balances">余额</TabsTrigger>
               <TabsTrigger value="positions">持仓</TabsTrigger>
               <TabsTrigger value="orders">订单</TabsTrigger>
+              <TabsTrigger value="transfers">充提</TabsTrigger>
               <TabsTrigger value="alerts">告警</TabsTrigger>
             </TabsList>
 
             {/* Overview Tab */}
             <TabsContent value="overview" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -250,6 +269,18 @@ export default function Dashboard() {
                   <CardContent>
                     <div className="text-2xl font-bold">
                       {dashboard?.openOrders?.length || 0}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">
+                      近20笔充提
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">
+                      {dashboard?.recentTransfers?.length || 0}
                     </div>
                   </CardContent>
                 </Card>
@@ -579,6 +610,105 @@ export default function Dashboard() {
                               </td>
                             </tr>
                           ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Transfers Tab */}
+            <TabsContent value="transfers">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ArrowDownLeft className="h-5 w-5" />
+                      <ArrowUpRight className="h-5 w-5" />
+                      充提记录
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        selectedAccountId &&
+                        syncTransfers.mutate({ id: selectedAccountId })
+                      }
+                      disabled={syncTransfers.isPending || !selectedAccountId}
+                    >
+                      <RefreshCw
+                        className={`h-4 w-4 mr-1 ${
+                          syncTransfers.isPending ? "animate-spin" : ""
+                        }`}
+                      />
+                      同步近3天
+                    </Button>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ScrollArea className="h-96">
+                    {transfers?.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">
+                        暂无充提记录，点击右上角同步
+                      </p>
+                    ) : (
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 px-2">类型</th>
+                            <th className="text-left py-2 px-2">资产</th>
+                            <th className="text-right py-2 px-2">数量</th>
+                            <th className="text-left py-2 px-2">网络</th>
+                            <th className="text-left py-2 px-2">状态</th>
+                            <th className="text-left py-2 px-2">时间</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {transfers?.map((transfer) => {
+                            const isDeposit = transfer.type === "deposit";
+                            return (
+                              <tr
+                                key={transfer.id}
+                                className="border-b last:border-0"
+                              >
+                                <td className="py-2 px-2">
+                                  <Badge
+                                    variant={
+                                      isDeposit ? "default" : "secondary"
+                                    }
+                                    className="flex items-center gap-1 w-fit"
+                                  >
+                                    {isDeposit ? (
+                                      <ArrowDownLeft className="h-3 w-3" />
+                                    ) : (
+                                      <ArrowUpRight className="h-3 w-3" />
+                                    )}
+                                    {isDeposit ? "充值" : "提现"}
+                                  </Badge>
+                                </td>
+                                <td className="py-2 px-2 font-medium">
+                                  {transfer.asset}
+                                </td>
+                                <td className="text-right py-2 px-2">
+                                  {parseFloat(String(transfer.amount)).toFixed(8)}
+                                </td>
+                                <td className="py-2 px-2">
+                                  {transfer.network || "-"}
+                                </td>
+                                <td className="py-2 px-2">
+                                  {transfer.status}
+                                </td>
+                                <td className="py-2 px-2 text-muted-foreground">
+                                  {transfer.transferTime
+                                    ? new Date(
+                                        transfer.transferTime
+                                      ).toLocaleString()
+                                    : "-"}
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     )}

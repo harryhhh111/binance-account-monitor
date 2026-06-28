@@ -38,6 +38,10 @@ export const alertTypeEnum = pgEnum("alert_type_enum", [
 ]);
 export const severityEnum = pgEnum("severity_enum", ["info", "warning", "critical"]);
 export const streamTypeEnum = pgEnum("stream_type_enum", ["spot", "futures"]);
+export const transferTypeEnum = pgEnum("transfer_type_enum", [
+  "deposit",
+  "withdrawal",
+]);
 export const connectionStatusEnum = pgEnum("connection_status_enum", [
   "connected",
   "disconnected",
@@ -204,6 +208,31 @@ export const connectionStatus = pgTable(
       table.accountId,
       table.streamType
     ),
+  })
+);
+
+// 充提币记录表
+export const transfers = pgTable(
+  "transfers",
+  {
+    id: serial("id").primaryKey(),
+    accountId: integer("account_id").notNull(),
+    type: transferTypeEnum("type").notNull(),
+    txId: varchar("tx_id", { length: 255 }).notNull(),
+    asset: varchar("asset", { length: 20 }).notNull(),
+    amount: numeric("amount", { precision: 36, scale: 18 }).notNull(),
+    network: varchar("network", { length: 50 }),
+    address: varchar("address", { length: 255 }),
+    addressTag: varchar("address_tag", { length: 100 }),
+    status: varchar("status", { length: 30 }).notNull(),
+    transferTime: timestamp("transfer_time", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  table => ({
+    uniqueAccountTypeTxId: uniqueIndex(
+      "transfers_account_type_tx_id_idx"
+    ).on(table.accountId, table.type, table.txId),
   })
 );
 

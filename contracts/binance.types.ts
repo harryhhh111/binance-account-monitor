@@ -282,3 +282,39 @@ export interface BinanceFuturesIncome {
   tranId: string;
   tradeId: string;
 }
+
+export interface BinanceDeposit {
+  id?: string;
+  amount: string;
+  coin: string;
+  network: string;
+  status: number;
+  address: string;
+  addressTag: string;
+  txId: string;
+  insertTime: number;
+  transferType?: number;
+  confirmTimes: string;
+  unlockConfirm: number;
+  walletType?: number;
+}
+
+export interface BinanceWithdrawal {
+  id: string;
+  amount: string;
+  transactionFee: string;
+  coin: string;
+  status: number;
+  address: string;
+  addressTag: string;
+  txId: string;
+  applyTime: string;
+  network: string;
+  transferType?: number;
+  withdrawOrderId?: string;
+  info?: string;
+  confirmNo?: number;
+  walletType?: number;
+  txKey?: string;
+  completeTime?: string;
+}
