@@ -148,33 +148,39 @@ export class BinanceWebSocketManager extends EventEmitter {
       try {
         const payload = JSON.parse(data.toString());
 
-        // Handle subscription acks and API responses (e.g. session.ping ack)
-        if (
-          payload.subscriptionId !== undefined ||
-          payload.result !== undefined ||
-          payload.error !== undefined
-        ) {
-          if (payload.error) {
-            this.emit("error", {
-              accountId: this.accountId,
-              stream: "spot",
-              error: JSON.stringify(payload.error),
-            });
-          } else if (payload.result && typeof payload.result === "object") {
-            // Capture listenKey returned by userDataStream.subscribe.signature
-            if (payload.result.listenKey && typeof payload.result.listenKey === "string") {
-              conn.listenKey = payload.result.listenKey;
-            }
+        // New WebSocket API event format: { subscriptionId, event: { e: ... } }
+        if (payload.event) {
+          const event = payload.event as BinanceEvent;
+          this.emit("event", {
+            accountId: this.accountId,
+            stream: "spot",
+            event,
+          });
+          return;
+        }
+
+        // Handle subscription acks and API responses (e.g. userDataStream.ping ack)
+        if (payload.error) {
+          this.emit("error", {
+            accountId: this.accountId,
+            stream: "spot",
+            error: JSON.stringify(payload.error),
+          });
+          return;
+        }
+
+        if (payload.result && typeof payload.result === "object") {
+          // Capture listenKey returned by userDataStream.subscribe.signature
+          if (
+            payload.result.listenKey &&
+            typeof payload.result.listenKey === "string"
+          ) {
+            conn.listenKey = payload.result.listenKey;
           }
           return;
         }
 
-        const event = payload as BinanceEvent;
-        this.emit("event", {
-          accountId: this.accountId,
-          stream: "spot",
-          event,
-        });
+        // subscriptionId-only frames / session.ping acks are ignored
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.emit("parse_error", {
