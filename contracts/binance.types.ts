@@ -239,3 +239,35 @@ export interface PositionTransition {
   entryPrice: number;
   realizedPnl?: number;
 }
+
+export interface BinanceSpotTrade {
+  symbol: string;
+  id: number; // trade id
+  orderId: number;
+  orderListId: number;
+  price: string;
+  qty: string;
+  quoteQty: string;
+  commission: string;
+  commissionAsset: string;
+  time: number;
+  isBuyer: boolean;
+  isMaker: boolean;
+  isBestMatch: boolean;
+}
+
+export interface BinanceFuturesTrade {
+  symbol: string;
+  id: number; // trade id
+  orderId: number;
+  side: string;
+  price: string;
+  qty: string;
+  quoteQty: string;
+  commission: string;
+  commissionAsset: string;
+  time: number;
+  positionSide: string;
+  buyer: boolean;
+  maker: boolean;
+}

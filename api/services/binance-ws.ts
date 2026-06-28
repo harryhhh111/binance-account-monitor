@@ -148,7 +148,7 @@ export class BinanceWebSocketManager extends EventEmitter {
       try {
         const payload = JSON.parse(data.toString());
 
-        // Ignore subscription acks and API responses (e.g. session.ping ack)
+        // Handle subscription acks and API responses (e.g. session.ping ack)
         if (
           payload.subscriptionId !== undefined ||
           payload.result !== undefined ||
@@ -160,6 +160,11 @@ export class BinanceWebSocketManager extends EventEmitter {
               stream: "spot",
               error: JSON.stringify(payload.error),
             });
+          } else if (payload.result && typeof payload.result === "object") {
+            // Capture listenKey returned by userDataStream.subscribe.signature
+            if (payload.result.listenKey && typeof payload.result.listenKey === "string") {
+              conn.listenKey = payload.result.listenKey;
+            }
           }
           return;
         }
@@ -348,17 +353,64 @@ export class BinanceWebSocketManager extends EventEmitter {
     const conn = stream === "spot" ? this.spotConnection : this.futuresConnection;
 
     if (stream === "spot" && this.spotCredentials) {
-      // WS-API session ping every 30 seconds
+      // WS-API spot user data stream: keep TCP alive with protocol pings every
+      // 30s and send a signed userDataStream.ping every 30 minutes to prevent
+      // the stream from expiring (expires after 60 minutes).
+      let tickCount = 0;
       conn.keepaliveInterval = setInterval(() => {
         try {
-          conn.ws?.send(JSON.stringify({ id: Date.now(), method: "session.ping" }));
+          conn.ws?.ping();
         } catch (err) {
           this.emit("keepalive_error", {
             accountId: this.accountId,
             stream,
-            error: (err as Error).message,
+            error: `protocol ping failed: ${(err as Error).message}`,
           });
         }
+
+        if (tickCount % 60 === 0) {
+          if (!conn.listenKey) {
+            this.emit("keepalive_error", {
+              accountId: this.accountId,
+              stream,
+              error: "userDataStream.ping skipped: listenKey not available yet",
+            });
+          } else {
+            try {
+              const timestamp = Date.now();
+              const query = new URLSearchParams({
+                apiKey: this.spotCredentials!.apiKey,
+                listenKey: conn.listenKey,
+                timestamp: String(timestamp),
+              }).toString();
+              const signature = crypto
+                .createHmac("sha256", this.spotCredentials!.apiSecret)
+                .update(query)
+                .digest("hex");
+
+              conn.ws?.send(
+                JSON.stringify({
+                  id: timestamp,
+                  method: "userDataStream.ping",
+                  params: {
+                    apiKey: this.spotCredentials!.apiKey,
+                    listenKey: conn.listenKey,
+                    timestamp,
+                    signature,
+                  },
+                })
+              );
+            } catch (err) {
+              this.emit("keepalive_error", {
+                accountId: this.accountId,
+                stream,
+                error: `userDataStream.ping failed: ${(err as Error).message}`,
+              });
+            }
+          }
+        }
+
+        tickCount++;
       }, 30 * 1000);
       return;
     }

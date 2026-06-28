@@ -206,3 +206,33 @@ export const connectionStatus = pgTable(
     ),
   })
 );
+
+// 历史成交记录表
+export const trades = pgTable(
+  "trades",
+  {
+    id: serial("id").primaryKey(),
+    accountId: integer("account_id").notNull(),
+    marketType: marketTypeEnum("market_type").notNull(),
+    symbol: varchar("symbol", { length: 30 }).notNull(),
+    tradeId: varchar("trade_id", { length: 50 }).notNull(),
+    orderId: varchar("order_id", { length: 50 }),
+    price: numeric("price", { precision: 36, scale: 18 }),
+    qty: numeric("qty", { precision: 36, scale: 18 }),
+    quoteQty: numeric("quote_qty", { precision: 36, scale: 18 }),
+    commission: numeric("commission", { precision: 36, scale: 18 }),
+    commissionAsset: varchar("commission_asset", { length: 20 }),
+    side: varchar("side", { length: 10 }),
+    positionSide: varchar("position_side", { length: 10 }),
+    isMaker: integer("is_maker"),
+    tradedAt: timestamp("traded_at", { mode: "date" }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  table => ({
+    uniqueAccountMarketTrade: uniqueIndex("trades_account_market_trade_idx").on(
+      table.accountId,
+      table.marketType,
+      table.tradeId
+    ),
+  })
+);

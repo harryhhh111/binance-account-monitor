@@ -586,6 +586,77 @@ export class AccountMonitor {
     }
   }
 
+  async syncTrades(days = 30): Promise<{
+    spot: number;
+    futures: number;
+  }> {
+    const accountId = this.config.accountId;
+    const endTime = Date.now();
+    const startTime = endTime - days * 24 * 60 * 60 * 1000;
+    let spotCount = 0;
+    let futuresCount = 0;
+
+    try {
+      // Spot: fetch trades for assets with non-zero balance
+      const spotBalances = await this.restClient.getSpotBalances();
+      for (const b of spotBalances) {
+        // Find a trading pair involving this asset (e.g. ASSETUSDT)
+        const symbol = `${b.asset}USDT`;
+        try {
+          const trades = await this.restClient.getSpotTrades(
+            symbol,
+            startTime,
+            endTime
+          );
+          if (trades.length > 0) {
+            await this.stateManager.loadSpotTrades(accountId, trades);
+            spotCount += trades.length;
+          }
+        } catch {
+          // Symbol may not exist or no trades; ignore
+        }
+        // Small delay to respect rate limits
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } catch (err) {
+      console.error(
+        `[Account ${accountId}] Error syncing spot trades:`,
+        err
+      );
+    }
+
+    try {
+      // Futures: fetch trades for symbols with open positions
+      const positions = await this.restClient.getFuturesPositions();
+      for (const p of positions) {
+        try {
+          const trades = await this.restClient.getFuturesTrades(
+            p.symbol,
+            startTime,
+            endTime
+          );
+          if (trades.length > 0) {
+            await this.stateManager.loadFuturesTrades(accountId, trades);
+            futuresCount += trades.length;
+          }
+        } catch {
+          // Ignore per-symbol errors
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    } catch (err) {
+      console.error(
+        `[Account ${accountId}] Error syncing futures trades:`,
+        err
+      );
+    }
+
+    console.log(
+      `[Account ${accountId}] Synced ${spotCount} spot trades and ${futuresCount} futures trades`
+    );
+    return { spot: spotCount, futures: futuresCount };
+  }
+
   getStatus(): { spot: string; futures: string; running: boolean } {
     return {
       ...this.wsManager.getStatus(),

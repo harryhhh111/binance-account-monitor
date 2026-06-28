@@ -8,6 +8,13 @@
       "when": 1782532732686,
       "tag": "0000_safe_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782618939201,
+      "tag": "0001_kind_whiplash",
+      "breakpoints": true
     }
   ]
 }

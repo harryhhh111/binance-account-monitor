@@ -8,10 +8,34 @@ import {
   accountEvents,
   alerts,
   connectionStatus,
+  trades,
 } from "@db/schema";
 import { eq, and, desc } from "drizzle-orm";
 
 export const monitorDataRouter = createRouter({
+  // Trades
+  trades: publicQuery
+    .input(
+      z.object({
+        accountId: z.number(),
+        marketType: z.enum(["spot", "futures"]).optional(),
+        limit: z.number().min(1).max(1000).default(100),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const conditions = [eq(trades.accountId, input.accountId)];
+      if (input.marketType) {
+        conditions.push(eq(trades.marketType, input.marketType));
+      }
+      return db
+        .select()
+        .from(trades)
+        .where(and(...conditions))
+        .orderBy(desc(trades.tradedAt))
+        .limit(input.limit);
+    }),
+
   // Balances
   balances: publicQuery
     .input(

@@ -5,6 +5,8 @@ import type {
   BinanceFuturesBalance,
   BinanceFuturesPosition,
   BinanceOrder,
+  BinanceSpotTrade,
+  BinanceFuturesTrade,
 } from "@contracts/binance.types";
 
 export interface BinanceCredentials {
@@ -138,6 +140,46 @@ export class BinanceRestClient {
     const params: Record<string, string | number> = { timestamp };
     const signature = this.sign(params, this.credentials.apiSecret);
     const res = await this.futuresClient.get("/fapi/v1/openOrders", {
+      params: { ...params, signature },
+    });
+    return res.data;
+  }
+
+  // ========== Trade History ==========
+
+  async getSpotTrades(
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceSpotTrade[]> {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = {
+      symbol,
+      startTime,
+      endTime,
+      timestamp,
+    };
+    const signature = this.sign(params, this.credentials.apiSecret);
+    const res = await this.spotClient.get("/api/v3/myTrades", {
+      params: { ...params, signature },
+    });
+    return res.data;
+  }
+
+  async getFuturesTrades(
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceFuturesTrade[]> {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = {
+      symbol,
+      startTime,
+      endTime,
+      timestamp,
+    };
+    const signature = this.sign(params, this.credentials.apiSecret);
+    const res = await this.futuresClient.get("/fapi/v1/userTrades", {
       params: { ...params, signature },
     });
     return res.data;

@@ -114,4 +114,19 @@ export const accountRouter = createRouter({
   monitorStatus: publicQuery.query(() => {
     return monitorManager.getStatus();
   }),
+
+  syncTrades: publicQuery
+    .input(
+      z.object({
+        id: z.number(),
+        days: z.number().min(1).max(365).default(30),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const monitor = monitorManager.getMonitor(input.id);
+      if (!monitor) {
+        throw new Error("Monitor not running for this account");
+      }
+      return monitor.syncTrades(input.days);
+    }),
 });

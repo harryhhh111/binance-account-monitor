@@ -1,6 +1,13 @@
 import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "../queries/connection";
-import { balances, orders, positions, accountEvents, alerts } from "@db/schema";
+import {
+  balances,
+  orders,
+  positions,
+  accountEvents,
+  alerts,
+  trades,
+} from "@db/schema";
 import type { ProcessedEvent } from "./event-processor";
 import { EventProcessor } from "./event-processor";
 import type {
@@ -9,6 +16,8 @@ import type {
   BinanceFuturesBalance,
   BinanceFuturesPosition,
   BinanceOrder,
+  BinanceSpotTrade,
+  BinanceFuturesTrade,
 } from "@contracts/binance.types";
 
 export class StateManager {
@@ -524,5 +533,100 @@ export class StateManager {
       .where(eq(accountEvents.accountId, accountId))
       .orderBy(sql`${accountEvents.createdAt} DESC`)
       .limit(limit);
+  }
+
+  // ========== Trade History ==========
+
+  async loadSpotTrades(
+    accountId: number,
+    tradesData: BinanceSpotTrade[]
+  ): Promise<void> {
+    const db = getDb();
+    for (const t of tradesData) {
+      await db
+        .insert(trades)
+        .values({
+          accountId,
+          marketType: "spot",
+          symbol: t.symbol,
+          tradeId: String(t.id),
+          orderId: String(t.orderId),
+          price: t.price,
+          qty: t.qty,
+          quoteQty: t.quoteQty,
+          commission: t.commission,
+          commissionAsset: t.commissionAsset,
+          side: t.isBuyer ? "BUY" : "SELL",
+          isMaker: t.isMaker ? 1 : 0,
+          tradedAt: new Date(t.time),
+        })
+        .onConflictDoUpdate({
+          target: [trades.accountId, trades.marketType, trades.tradeId],
+          set: {
+            price: t.price,
+            qty: t.qty,
+            quoteQty: t.quoteQty,
+            commission: t.commission,
+            commissionAsset: t.commissionAsset,
+            side: t.isBuyer ? "BUY" : "SELL",
+            isMaker: t.isMaker ? 1 : 0,
+            tradedAt: new Date(t.time),
+          },
+        });
+    }
+  }
+
+  async loadFuturesTrades(
+    accountId: number,
+    tradesData: BinanceFuturesTrade[]
+  ): Promise<void> {
+    const db = getDb();
+    for (const t of tradesData) {
+      await db
+        .insert(trades)
+        .values({
+          accountId,
+          marketType: "futures",
+          symbol: t.symbol,
+          tradeId: String(t.id),
+          orderId: String(t.orderId),
+          price: t.price,
+          qty: t.qty,
+          quoteQty: t.quoteQty,
+          commission: t.commission,
+          commissionAsset: t.commissionAsset,
+          side: t.side,
+          positionSide: t.positionSide,
+          isMaker: t.maker ? 1 : 0,
+          tradedAt: new Date(t.time),
+        })
+        .onConflictDoUpdate({
+          target: [trades.accountId, trades.marketType, trades.tradeId],
+          set: {
+            price: t.price,
+            qty: t.qty,
+            quoteQty: t.quoteQty,
+            commission: t.commission,
+            commissionAsset: t.commissionAsset,
+            side: t.side,
+            positionSide: t.positionSide,
+            isMaker: t.maker ? 1 : 0,
+            tradedAt: new Date(t.time),
+          },
+        });
+    }
+  }
+
+  async getTrades(accountId: number, marketType?: "spot" | "futures") {
+    const db = getDb();
+    const conditions = [eq(trades.accountId, accountId)];
+    if (marketType) {
+      conditions.push(eq(trades.marketType, marketType));
+    }
+    return db
+      .select()
+      .from(trades)
+      .where(and(...conditions))
+      .orderBy(sql`${trades.tradedAt} DESC`);
   }
 }
