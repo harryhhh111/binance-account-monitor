@@ -586,6 +586,10 @@ export class AccountMonitor {
     }
   }
 
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async syncTrades(days = 30): Promise<{
     spot: number;
     futures: number;
@@ -596,14 +600,47 @@ export class AccountMonitor {
     let spotCount = 0;
     let futuresCount = 0;
 
+    const SPOT_QUOTE_ASSETS = ["USDT", "USDC", "FDUSD", "BTC", "ETH", "BNB"];
+
     try {
-      // Spot: fetch trades for assets with non-zero balance
-      const spotBalances = await this.restClient.getSpotBalances();
-      for (const b of spotBalances) {
-        // Find a trading pair involving this asset (e.g. ASSETUSDT)
-        const symbol = `${b.asset}USDT`;
+      // Spot: use all account assets (including zero-balance assets that may
+      // have been sold off) and validate symbols against exchangeInfo.
+      const [spotBalances, spotExchangeInfo] = await Promise.all([
+        this.restClient.getSpotAccount(),
+        this.restClient.getSpotExchangeInfo(),
+      ]);
+
+      const activeSpotSymbols = new Set(
+        spotExchangeInfo
+          .filter((s) => s.status === "TRADING")
+          .map((s) => s.symbol)
+      );
+
+      const nonZeroAssets = new Set(
+        spotBalances
+          .filter(
+            (b) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
+          )
+          .map((b) => b.asset)
+      );
+
+      const candidateSymbols = new Set<string>();
+      for (const asset of spotBalances.map((b) => b.asset)) {
+        for (const quote of SPOT_QUOTE_ASSETS) {
+          if (asset === quote) continue;
+          const symbol = `${asset}${quote}`;
+          if (
+            activeSpotSymbols.has(symbol) &&
+            (nonZeroAssets.has(asset) || nonZeroAssets.has(quote))
+          ) {
+            candidateSymbols.add(symbol);
+          }
+        }
+      }
+
+      for (const symbol of candidateSymbols) {
         try {
-          const trades = await this.restClient.getSpotTrades(
+          const trades = await this.restClient.getAllSpotTrades(
             symbol,
             startTime,
             endTime
@@ -613,10 +650,9 @@ export class AccountMonitor {
             spotCount += trades.length;
           }
         } catch {
-          // Symbol may not exist or no trades; ignore
+          // Symbol may not be tradable or have no trades; ignore
         }
-        // Small delay to respect rate limits
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.sleep(150);
       }
     } catch (err) {
       console.error(
@@ -626,12 +662,18 @@ export class AccountMonitor {
     }
 
     try {
-      // Futures: fetch trades for symbols with open positions
-      const positions = await this.restClient.getFuturesPositions();
-      for (const p of positions) {
+      // Futures: iterate all active USD-M symbols so we don't miss
+      // positions that have already been closed.
+      const futuresExchangeInfo =
+        await this.restClient.getFuturesExchangeInfo();
+      const activeFuturesSymbols = futuresExchangeInfo
+        .filter((s) => s.status === "TRADING")
+        .map((s) => s.symbol);
+
+      for (const symbol of activeFuturesSymbols) {
         try {
-          const trades = await this.restClient.getFuturesTrades(
-            p.symbol,
+          const trades = await this.restClient.getAllFuturesTrades(
+            symbol,
             startTime,
             endTime
           );
@@ -642,7 +684,7 @@ export class AccountMonitor {
         } catch {
           // Ignore per-symbol errors
         }
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await this.sleep(100);
       }
     } catch (err) {
       console.error(

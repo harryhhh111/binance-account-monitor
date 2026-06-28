@@ -229,10 +229,8 @@ export const trades = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   table => ({
-    uniqueAccountMarketTrade: uniqueIndex("trades_account_market_trade_idx").on(
-      table.accountId,
-      table.marketType,
-      table.tradeId
-    ),
+    uniqueAccountMarketSymbolTrade: uniqueIndex(
+      "trades_account_market_symbol_trade_idx"
+    ).on(table.accountId, table.marketType, table.symbol, table.tradeId),
   })
 );

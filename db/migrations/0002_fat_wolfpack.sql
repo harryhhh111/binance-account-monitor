@@ -1,0 +1,2 @@
+DROP INDEX "trades_account_market_trade_idx";--> statement-breakpoint
+CREATE UNIQUE INDEX "trades_account_market_symbol_trade_idx" ON "trades" USING btree ("account_id","market_type","symbol","trade_id");

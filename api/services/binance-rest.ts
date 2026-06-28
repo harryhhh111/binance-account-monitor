@@ -70,15 +70,20 @@ export class BinanceRestClient {
     });
   }
 
-  async getSpotBalances(): Promise<BinanceBalance[]> {
+  async getSpotAccount(): Promise<BinanceBalance[]> {
     const timestamp = Date.now();
     const params: Record<string, string | number> = { timestamp };
     const signature = this.sign(params, this.credentials.apiSecret);
     const res = await this.spotClient.get("/api/v3/account", {
       params: { ...params, signature },
     });
-    return res.data.balances.filter(
-      (b: BinanceBalance) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
+    return res.data.balances;
+  }
+
+  async getSpotBalances(): Promise<BinanceBalance[]> {
+    const balances = await this.getSpotAccount();
+    return balances.filter(
+      (b) => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0
     );
   }
 
@@ -145,20 +150,59 @@ export class BinanceRestClient {
     return res.data;
   }
 
+  // ========== Exchange Info ==========
+
+  async getSpotExchangeInfo(): Promise<
+    Array<{
+      symbol: string;
+      baseAsset: string;
+      quoteAsset: string;
+      status: string;
+    }>
+  > {
+    const res = await this.spotClient.get("/api/v3/exchangeInfo");
+    return res.data.symbols;
+  }
+
+  async getFuturesExchangeInfo(): Promise<
+    Array<{
+      symbol: string;
+      baseAsset: string;
+      quoteAsset: string;
+      status: string;
+    }>
+  > {
+    const res = await this.futuresClient.get("/fapi/v1/exchangeInfo");
+    return res.data.symbols;
+  }
+
   // ========== Trade History ==========
 
-  async getSpotTrades(
+  private readonly TRADE_WINDOW_MS = 24 * 60 * 60 * 1000; // Binance max window
+  private readonly MIN_TRADE_CHUNK_MS = 60 * 1000;
+  private readonly TRADE_PAGE_LIMIT = 1000;
+
+  private async fetchSpotTradesPage(
     symbol: string,
-    startTime: number,
-    endTime: number
+    options: {
+      startTime?: number;
+      endTime?: number;
+      fromId?: number;
+      limit?: number;
+    }
   ): Promise<BinanceSpotTrade[]> {
     const timestamp = Date.now();
     const params: Record<string, string | number> = {
       symbol,
-      startTime,
-      endTime,
       timestamp,
+      limit: options.limit ?? this.TRADE_PAGE_LIMIT,
     };
+    if (options.fromId !== undefined) {
+      params.fromId = options.fromId;
+    } else {
+      params.startTime = options.startTime!;
+      params.endTime = options.endTime!;
+    }
     const signature = this.sign(params, this.credentials.apiSecret);
     const res = await this.spotClient.get("/api/v3/myTrades", {
       params: { ...params, signature },
@@ -166,22 +210,165 @@ export class BinanceRestClient {
     return res.data;
   }
 
-  async getFuturesTrades(
+  private async fetchFuturesTradesPage(
     symbol: string,
-    startTime: number,
-    endTime: number
+    options: {
+      startTime?: number;
+      endTime?: number;
+      fromId?: number;
+      limit?: number;
+    }
   ): Promise<BinanceFuturesTrade[]> {
     const timestamp = Date.now();
     const params: Record<string, string | number> = {
       symbol,
-      startTime,
-      endTime,
       timestamp,
+      limit: options.limit ?? this.TRADE_PAGE_LIMIT,
     };
+    if (options.fromId !== undefined) {
+      params.fromId = options.fromId;
+    } else {
+      params.startTime = options.startTime!;
+      params.endTime = options.endTime!;
+    }
     const signature = this.sign(params, this.credentials.apiSecret);
     const res = await this.futuresClient.get("/fapi/v1/userTrades", {
       params: { ...params, signature },
     });
     return res.data;
+  }
+
+  async getAllSpotTrades(
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceSpotTrade[]> {
+    return this.fetchAllTrades(
+      (s, st, et) => this.fetchSpotTradesPage(s, { startTime: st, endTime: et }),
+      (s, fromId) => this.fetchSpotTradesPage(s, { fromId }),
+      symbol,
+      startTime,
+      endTime
+    );
+  }
+
+  async getAllFuturesTrades(
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<BinanceFuturesTrade[]> {
+    return this.fetchAllTrades(
+      (s, st, et) =>
+        this.fetchFuturesTradesPage(s, { startTime: st, endTime: et }),
+      (s, fromId) => this.fetchFuturesTradesPage(s, { fromId }),
+      symbol,
+      startTime,
+      endTime
+    );
+  }
+
+  private async fetchAllTrades<T extends { id: number; time: number }>(
+    fetchByWindow: (
+      symbol: string,
+      startTime: number,
+      endTime: number
+    ) => Promise<T[]>,
+    fetchByFromId: (symbol: string, fromId: number) => Promise<T[]>,
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<T[]> {
+    const all: T[] = [];
+    let windowStart = startTime;
+
+    while (windowStart < endTime) {
+      const windowEnd = Math.min(
+        windowStart + this.TRADE_WINDOW_MS,
+        endTime
+      );
+      const chunk = await this.fetchTradeWindow(
+        fetchByWindow,
+        fetchByFromId,
+        symbol,
+        windowStart,
+        windowEnd
+      );
+      all.push(...chunk);
+      windowStart += this.TRADE_WINDOW_MS;
+    }
+
+    return all;
+  }
+
+  private async fetchTradeWindow<T extends { id: number; time: number }>(
+    fetchByWindow: (
+      symbol: string,
+      startTime: number,
+      endTime: number
+    ) => Promise<T[]>,
+    fetchByFromId: (symbol: string, fromId: number) => Promise<T[]>,
+    symbol: string,
+    startTime: number,
+    endTime: number
+  ): Promise<T[]> {
+    const page = await fetchByWindow(symbol, startTime, endTime);
+    if (page.length < this.TRADE_PAGE_LIMIT) {
+      return page;
+    }
+
+    // If the window is already very small, paginate by trade id.
+    if (endTime - startTime <= this.MIN_TRADE_CHUNK_MS) {
+      return this.fetchTradesFromId(
+        fetchByFromId,
+        symbol,
+        startTime,
+        endTime,
+        page
+      );
+    }
+
+    // Otherwise split the window and recurse.
+    const mid = startTime + Math.floor((endTime - startTime) / 2);
+    const left = await this.fetchTradeWindow(
+      fetchByWindow,
+      fetchByFromId,
+      symbol,
+      startTime,
+      mid
+    );
+    const right = await this.fetchTradeWindow(
+      fetchByWindow,
+      fetchByFromId,
+      symbol,
+      mid,
+      endTime
+    );
+    return [...left, ...right];
+  }
+
+  private async fetchTradesFromId<T extends { id: number; time: number }>(
+    fetchByFromId: (symbol: string, fromId: number) => Promise<T[]>,
+    symbol: string,
+    startTime: number,
+    endTime: number,
+    initialPage: T[]
+  ): Promise<T[]> {
+    const result: T[] = [...initialPage];
+    let fromId = initialPage[initialPage.length - 1].id + 1;
+
+    while (true) {
+      const page = await fetchByFromId(symbol, fromId);
+      if (page.length === 0) break;
+
+      for (const trade of page) {
+        if (trade.time > endTime) return result;
+        if (trade.time >= startTime) result.push(trade);
+      }
+
+      if (page.length < this.TRADE_PAGE_LIMIT) break;
+      fromId = page[page.length - 1].id + 1;
+    }
+
+    return result;
   }
 }

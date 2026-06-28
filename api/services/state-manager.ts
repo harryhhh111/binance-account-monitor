@@ -561,7 +561,12 @@ export class StateManager {
           tradedAt: new Date(t.time),
         })
         .onConflictDoUpdate({
-          target: [trades.accountId, trades.marketType, trades.tradeId],
+          target: [
+            trades.accountId,
+            trades.marketType,
+            trades.symbol,
+            trades.tradeId,
+          ],
           set: {
             price: t.price,
             qty: t.qty,
@@ -601,7 +606,12 @@ export class StateManager {
           tradedAt: new Date(t.time),
         })
         .onConflictDoUpdate({
-          target: [trades.accountId, trades.marketType, trades.tradeId],
+          target: [
+            trades.accountId,
+            trades.marketType,
+            trades.symbol,
+            trades.tradeId,
+          ],
           set: {
             price: t.price,
             qty: t.qty,
