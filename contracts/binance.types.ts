@@ -271,3 +271,14 @@ export interface BinanceFuturesTrade {
   buyer: boolean;
   maker: boolean;
 }
+
+export interface BinanceFuturesIncome {
+  symbol: string;
+  incomeType: string;
+  income: string;
+  asset: string;
+  info: string;
+  time: number;
+  tranId: string;
+  tradeId: string;
+}

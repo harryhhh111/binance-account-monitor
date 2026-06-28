@@ -7,6 +7,7 @@ import type {
   BinanceOrder,
   BinanceSpotTrade,
   BinanceFuturesTrade,
+  BinanceFuturesIncome,
 } from "@contracts/binance.types";
 
 export interface BinanceCredentials {
@@ -174,6 +175,25 @@ export class BinanceRestClient {
   > {
     const res = await this.futuresClient.get("/fapi/v1/exchangeInfo");
     return res.data.symbols;
+  }
+
+  async getFuturesIncomeHistory(options?: {
+    startTime?: number;
+    endTime?: number;
+    limit?: number;
+    incomeType?: string;
+  }): Promise<BinanceFuturesIncome[]> {
+    const timestamp = Date.now();
+    const params: Record<string, string | number> = { timestamp };
+    if (options?.startTime !== undefined) params.startTime = options.startTime;
+    if (options?.endTime !== undefined) params.endTime = options.endTime;
+    if (options?.limit !== undefined) params.limit = options.limit;
+    if (options?.incomeType !== undefined) params.incomeType = options.incomeType;
+    const signature = this.sign(params, this.credentials.apiSecret);
+    const res = await this.futuresClient.get("/fapi/v1/income", {
+      params: { ...params, signature },
+    });
+    return res.data;
   }
 
   // ========== Trade History ==========

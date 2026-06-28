@@ -652,7 +652,7 @@ export class AccountMonitor {
         } catch {
           // Symbol may not be tradable or have no trades; ignore
         }
-        await this.sleep(150);
+        await this.sleep(250);
       }
     } catch (err) {
       console.error(
@@ -662,15 +662,32 @@ export class AccountMonitor {
     }
 
     try {
-      // Futures: iterate all active USD-M symbols so we don't miss
-      // positions that have already been closed.
-      const futuresExchangeInfo =
-        await this.restClient.getFuturesExchangeInfo();
-      const activeFuturesSymbols = futuresExchangeInfo
-        .filter((s) => s.status === "TRADING")
-        .map((s) => s.symbol);
+      // Futures: discover symbols that actually had account activity from
+      // income history, then pull userTrades for those symbols only. This
+      // avoids sending thousands of requests to every active USD-M symbol.
+      const [futuresExchangeInfo, futuresIncome] = await Promise.all([
+        this.restClient.getFuturesExchangeInfo(),
+        this.restClient.getFuturesIncomeHistory({
+          startTime,
+          endTime,
+          limit: 1000,
+        }),
+      ]);
 
-      for (const symbol of activeFuturesSymbols) {
+      const activeFuturesSymbols = new Set(
+        futuresExchangeInfo
+          .filter((s) => s.status === "TRADING")
+          .map((s) => s.symbol)
+      );
+
+      const tradedSymbols = new Set<string>();
+      for (const item of futuresIncome) {
+        if (item.symbol && activeFuturesSymbols.has(item.symbol)) {
+          tradedSymbols.add(item.symbol);
+        }
+      }
+
+      for (const symbol of tradedSymbols) {
         try {
           const trades = await this.restClient.getAllFuturesTrades(
             symbol,
@@ -684,7 +701,7 @@ export class AccountMonitor {
         } catch {
           // Ignore per-symbol errors
         }
-        await this.sleep(100);
+        await this.sleep(200);
       }
     } catch (err) {
       console.error(
