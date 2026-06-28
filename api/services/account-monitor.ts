@@ -29,14 +29,18 @@ export class AccountMonitor {
       apiSecret: config.apiSecret,
     });
     this.stateManager = new StateManager();
-    this.wsManager = new BinanceWebSocketManager(config.accountId, {
-      createSpotListenKey: () => this.restClient.createSpotListenKey(),
-      keepaliveSpotListenKey: (key: string) =>
-        this.restClient.keepaliveSpotListenKey(key),
-      createFuturesListenKey: () => this.restClient.createFuturesListenKey(),
-      keepaliveFuturesListenKey: (key: string) =>
-        this.restClient.keepaliveFuturesListenKey(key),
-    });
+    this.wsManager = new BinanceWebSocketManager(
+      config.accountId,
+      {
+        createFuturesListenKey: () => this.restClient.createFuturesListenKey(),
+        keepaliveFuturesListenKey: (key: string) =>
+          this.restClient.keepaliveFuturesListenKey(key),
+      },
+      {
+        apiKey: config.apiKey,
+        apiSecret: config.apiSecret,
+      }
+    );
 
     this.setupEventHandlers();
   }

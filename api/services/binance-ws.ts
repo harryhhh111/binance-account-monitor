@@ -1,9 +1,16 @@
 import WebSocket from "ws";
 import EventEmitter from "events";
+import crypto from "crypto";
 import type { BinanceEvent } from "@contracts/binance.types";
 
 const SPOT_WS_URL = "wss://stream.binance.com:9443/ws";
+const SPOT_WS_API_URL = "wss://ws-api.binance.com/ws-api/v3";
 const FUTURES_WS_URL = "wss://fstream.binance.com/ws";
+
+interface BinanceCredentials {
+  apiKey: string;
+  apiSecret: string;
+}
 
 interface WSConnection {
   ws: WebSocket | null;
@@ -33,11 +40,12 @@ export class BinanceWebSocketManager extends EventEmitter {
   private maxReconnectDelay = 30000;
   private reconnectDecay = 2;
   private accountId: number;
+  private spotCredentials?: BinanceCredentials;
 
-  // Callbacks for listenKey management
+  // Callbacks for listenKey management (futures still uses this)
   private callbacks: {
-    createSpotListenKey: () => Promise<string>;
-    keepaliveSpotListenKey: (key: string) => Promise<void>;
+    createSpotListenKey?: () => Promise<string>;
+    keepaliveSpotListenKey?: (key: string) => Promise<void>;
     createFuturesListenKey: () => Promise<string>;
     keepaliveFuturesListenKey: (key: string) => Promise<void>;
   };
@@ -45,26 +53,33 @@ export class BinanceWebSocketManager extends EventEmitter {
   constructor(
     accountId: number,
     callbacks: {
-      createSpotListenKey: () => Promise<string>;
-      keepaliveSpotListenKey: (key: string) => Promise<void>;
+      createSpotListenKey?: () => Promise<string>;
+      keepaliveSpotListenKey?: (key: string) => Promise<void>;
       createFuturesListenKey: () => Promise<string>;
       keepaliveFuturesListenKey: (key: string) => Promise<void>;
-    }
+    },
+    spotCredentials?: BinanceCredentials
   ) {
     super();
     this.accountId = accountId;
     this.callbacks = callbacks;
+    this.spotCredentials = spotCredentials;
   }
 
   // ========== Spot WebSocket ==========
 
   async connectSpot(): Promise<void> {
+    if (this.spotCredentials) {
+      await this.connectSpotWsApi();
+    } else {
+      await this.connectSpotLegacy();
+    }
+  }
+
+  private async connectSpotWsApi(): Promise<void> {
     try {
-      this.spotConnection.listenKey =
-        await this.callbacks.createSpotListenKey();
-      const url = `${SPOT_WS_URL}/${this.spotConnection.listenKey}`;
-      this.spotConnection.ws = new WebSocket(url);
-      this.setupSpotHandlers();
+      this.spotConnection.ws = new WebSocket(SPOT_WS_API_URL);
+      this.setupSpotWsApiHandlers();
     } catch (err) {
       this.emit("error", {
         accountId: this.accountId,
@@ -75,7 +90,120 @@ export class BinanceWebSocketManager extends EventEmitter {
     }
   }
 
-  private setupSpotHandlers(): void {
+  private async connectSpotLegacy(): Promise<void> {
+    try {
+      this.spotConnection.listenKey =
+        await this.callbacks.createSpotListenKey!();
+      const url = `${SPOT_WS_URL}/${this.spotConnection.listenKey}`;
+      this.spotConnection.ws = new WebSocket(url);
+      this.setupSpotLegacyHandlers();
+    } catch (err) {
+      this.emit("error", {
+        accountId: this.accountId,
+        stream: "spot",
+        error: (err as Error).message,
+      });
+      this.scheduleReconnect("spot");
+    }
+  }
+
+  private setupSpotWsApiHandlers(): void {
+    const conn = this.spotConnection;
+    if (!conn.ws) return;
+
+    conn.ws.on("open", () => {
+      conn.status = "connected";
+      conn.reconnectAttempts = 0;
+      this.emit("connected", {
+        accountId: this.accountId,
+        stream: "spot",
+      });
+
+      const timestamp = Date.now();
+      const query = new URLSearchParams({
+        apiKey: this.spotCredentials!.apiKey,
+        timestamp: String(timestamp),
+      }).toString();
+      const signature = crypto
+        .createHmac("sha256", this.spotCredentials!.apiSecret)
+        .update(query)
+        .digest("hex");
+
+      conn.ws!.send(
+        JSON.stringify({
+          id: timestamp,
+          method: "userDataStream.subscribe.signature",
+          params: {
+            apiKey: this.spotCredentials!.apiKey,
+            timestamp,
+            signature,
+          },
+        })
+      );
+
+      this.startKeepalive("spot");
+    });
+
+    conn.ws.on("message", (data: WebSocket.Data) => {
+      try {
+        const payload = JSON.parse(data.toString());
+
+        // Ignore subscription acks and API responses (e.g. session.ping ack)
+        if (
+          payload.subscriptionId !== undefined ||
+          payload.result !== undefined ||
+          payload.error !== undefined
+        ) {
+          if (payload.error) {
+            this.emit("error", {
+              accountId: this.accountId,
+              stream: "spot",
+              error: JSON.stringify(payload.error),
+            });
+          }
+          return;
+        }
+
+        const event = payload as BinanceEvent;
+        this.emit("event", {
+          accountId: this.accountId,
+          stream: "spot",
+          event,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.emit("parse_error", {
+          accountId: this.accountId,
+          stream: "spot",
+          error: message,
+          data: data.toString(),
+        });
+      }
+    });
+
+    conn.ws.on("close", (code: number, reason: Buffer) => {
+      conn.status = "disconnected";
+      this.stopKeepalive("spot");
+      this.emit("disconnected", {
+        accountId: this.accountId,
+        stream: "spot",
+        code,
+        reason: reason.toString(),
+      });
+      this.scheduleReconnect("spot");
+    });
+
+    conn.ws.on("error", (err: Error) => {
+      conn.status = "error";
+      this.emit("error", {
+        accountId: this.accountId,
+        stream: "spot",
+        error: err.message,
+      });
+    });
+  }
+
+  private setupSpotLegacyHandlers(): void {
     const conn = this.spotConnection;
     if (!conn.ws) return;
 
@@ -204,10 +332,37 @@ export class BinanceWebSocketManager extends EventEmitter {
     });
   }
 
+
+
+  private stopKeepalive(stream: "spot" | "futures"): void {
+    const conn = stream === "spot" ? this.spotConnection : this.futuresConnection;
+    if (conn.keepaliveInterval) {
+      clearInterval(conn.keepaliveInterval);
+      conn.keepaliveInterval = null;
+    }
+  }
+
   // ========== Keepalive ==========
 
   private startKeepalive(stream: "spot" | "futures"): void {
     const conn = stream === "spot" ? this.spotConnection : this.futuresConnection;
+
+    if (stream === "spot" && this.spotCredentials) {
+      // WS-API session ping every 30 seconds
+      conn.keepaliveInterval = setInterval(() => {
+        try {
+          conn.ws?.send(JSON.stringify({ id: Date.now(), method: "session.ping" }));
+        } catch (err) {
+          this.emit("keepalive_error", {
+            accountId: this.accountId,
+            stream,
+            error: (err as Error).message,
+          });
+        }
+      }, 30 * 1000);
+      return;
+    }
+
     const keepaliveFn =
       stream === "spot"
         ? this.callbacks.keepaliveSpotListenKey
@@ -216,7 +371,7 @@ export class BinanceWebSocketManager extends EventEmitter {
     // Keepalive every 30 minutes (listenKey expires in 60 minutes)
     conn.keepaliveInterval = setInterval(async () => {
       try {
-        await keepaliveFn(conn.listenKey);
+        await keepaliveFn!(conn.listenKey);
       } catch (err) {
         this.emit("keepalive_error", {
           accountId: this.accountId,
@@ -226,7 +381,7 @@ export class BinanceWebSocketManager extends EventEmitter {
         // If keepalive fails, recreate listenKey
         try {
           if (stream === "spot") {
-            conn.listenKey = await this.callbacks.createSpotListenKey();
+            conn.listenKey = await this.callbacks.createSpotListenKey!();
             this.reconnect(stream);
           } else {
             conn.listenKey = await this.callbacks.createFuturesListenKey();
@@ -241,14 +396,6 @@ export class BinanceWebSocketManager extends EventEmitter {
         }
       }
     }, 30 * 60 * 1000); // 30 minutes
-  }
-
-  private stopKeepalive(stream: "spot" | "futures"): void {
-    const conn = stream === "spot" ? this.spotConnection : this.futuresConnection;
-    if (conn.keepaliveInterval) {
-      clearInterval(conn.keepaliveInterval);
-      conn.keepaliveInterval = null;
-    }
   }
 
   // ========== Reconnection ==========
