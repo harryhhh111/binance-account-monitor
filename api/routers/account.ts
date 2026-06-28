@@ -119,7 +119,7 @@ export const accountRouter = createRouter({
     .input(
       z.object({
         id: z.number(),
-        days: z.number().min(1).max(365).default(30),
+        days: z.number().min(1).max(365).default(3),
       })
     )
     .mutation(async ({ input }) => {

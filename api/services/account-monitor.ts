@@ -590,7 +590,7 @@ export class AccountMonitor {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
-  async syncTrades(days = 30): Promise<{
+  async syncTrades(days = 3): Promise<{
     spot: number;
     futures: number;
   }> {
